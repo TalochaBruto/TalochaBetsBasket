@@ -1,6 +1,7 @@
 import requests
-import streamlit as st
+import pandas as pd
 import numpy as np
+import streamlit as st
 
 def get_upcoming_and_live_games(league=None):
     """Obtém jogos ao vivo e próximos via API (exemplo fictício)"""
@@ -9,40 +10,49 @@ def get_upcoming_and_live_games(league=None):
     
     try:
         response = requests.get(url, params=params)
-        if response.status_code == 200:
-            return response.json().get("games", [])  # Certificando-se de que retorna uma lista válida
-    except Exception as e:
-        st.error("Erro ao buscar jogos: " + str(e))
-    
-    return []
+        response.raise_for_status()
+        data = response.json()
+        return data.get("games", [])  # Certificando que retornamos uma lista válida
+    except requests.exceptions.RequestException as e:
+        st.error(f"Erro ao obter dados da API: {e}")
+        return []
 
 def get_team_stats(team):
     """Obtém estatísticas recentes do time via API (exemplo fictício)"""
     url = f'https://api.basketballdata.com/team/stats'
     params = {"team": team}
+    
     try:
         response = requests.get(url, params=params)
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'OffRtg': data.get('offensive_rating', 100),
-                'DefRtg': data.get('defensive_rating', 100),
-                'Pace': data.get('pace', 100),
-                'Last5_TeamPoints': np.mean(data.get('last5_games', [])) if 'last5_TeamPoints' in data else 100
-            }
-        else:
-            return None
+        response.raise_for_status()
+        data = response.json()
+        
+        return {
+            'OffRtg': data.get('offensive_rating', 100),
+            'DefRtg': data.get('defensive_rating', 100),
+            'Pace': data.get('pace', 100),
+            'Last5_OpponentAvg': sum(game['opponent_score'] for game in data.get('last5_games', [])) / 5 if 'last5_games' in data else 100,
+            'Last5_TeamPoints': sum(game['team_score'] for game in data.get('last5_games', [])) / 5 if 'last5_games' in data else 100
+        }
+    except requests.RequestException:
+        return None
 
-def predict_winner(team1, team2):
-    """Previsão do vencedor e placares prováveis."""
+def predict_winner(game):
+    """Prevê o vencedor e a pontuação provável com base nos dados recentes."""
+    team1 = game['team1']
+    team2 = game['team2']
+    
     stats1 = get_team_stats(team1)
     stats2 = get_team_stats(team2)
     
     if not stats1 or not stats2:
         return "Não foi possível prever este jogo. Dados insuficientes."
     
-    predicted_score1 = round(stats1['Last5_TeamPoints'] * stats1['Pace'] / 100 * np.random.uniform(0.95, 1.05))
-    predicted_score2 = round(stats2['Last5_TeamPoints'] * stats2['Pace'] / 100 * np.random.uniform(0.95, 1.05))
+    score_mod1 = np.random.uniform(0.95, 1.05)
+    score_mod2 = np.random.uniform(0.9, 1.1)
+    
+    predicted_score1 = round(stats1['Last5_TeamPoints'] * (stats1['Pace'] / 100) * score_mod)
+    predicted_score2 = round(stats2['Last5_TeamPoints'] * stats2['Pace'] / 100 * score_mod)
     
     winner = team1 if predicted_score1 > predicted_score2 else team2
     return f"Previsão: {team1} {predicted_score1} x {predicted_score2} {team2} (Vencedor: {winner})"
@@ -52,14 +62,15 @@ st.title("🏀 Previsão de Jogos de Basquetebol 🏀")
 league = st.selectbox("Escolha a Liga", ["Todas", "NBA", "EuroLeague", "NBB"])
 
 games = get_upcoming_and_live_games(league)
+
 if not games:
-    st.warning("Nenhum jogo ao vivo ou programado para esta liga.")
+    st.write("Nenhum jogo ao vivo ou próximo disponível.")
 else:
-    game_options = [f"{g['team1']} vs {g['team2']} ({g['status']})" for g in games]
-    selected_game = st.selectbox("Escolha um jogo para previsão", game_options)
-    
-    game = next((g for g in games if f"{g['team1']} vs {g['team2']}" in selected_game), None)
-    
-    if game and st.button("Prever Resultado"):
-        st.subheader(f"🔮 {predict_winner(game)}")
+    st.subheader("🏀 Jogos ao vivo e próximos 🏀")
+    for game in games:
+        game_desc = f"{game['team1']} vs {g['team2']} ({game['status']})"
+        if st.button(game_options):
+            prediction = predict_winner(game)
+            st.write(prediction)
+
 
